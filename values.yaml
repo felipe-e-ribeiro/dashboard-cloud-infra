@@ -1,0 +1,83 @@
+# Default values for the dashboard-cloud chart.
+
+nameOverride: ""
+fullnameOverride: ""
+
+backend:
+  image:
+    repository: ghcr.io/your-org/dashboard-cloud-backend
+    tag: "" # defaults to .Chart.AppVersion
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  # The backend image's own CMD runs `alembic upgrade head` before starting uvicorn.
+  # Schema changes are already applied by the dedicated migrate Job below (a Helm
+  # pre-install/pre-upgrade hook), so this overrides the container command to just
+  # serve traffic — replicas never race each other running migrations.
+  command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+  service:
+    port: 8000
+  resources: {}
+
+frontend:
+  enabled: true
+  image:
+    repository: ghcr.io/your-org/dashboard-cloud-frontend
+    tag: "" # defaults to .Chart.AppVersion
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  service:
+    port: 8080
+  resources: {}
+
+ingress:
+  enabled: true
+  className: ""
+  annotations: {
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  }
+  host: dash-finops.felipeduribeiro.com.br
+  tls:
+    - hosts:
+        - dash-finops.felipeduribeiro.com.br
+      secretName: dash-finops-tls
+
+# Application configuration. Everything here ends up in a Kubernetes Secret
+# (templates/secret-app.yaml) consumed by the backend Deployment and by the
+# migrate Job. Never commit real values — override with `--set` or a private
+# values file, e.g. `helm install -f values.secret.yaml`.
+config:
+  jwtSecret: "change-me-to-a-long-random-string"
+  adminUsername: "admin"
+  adminPassword: "change-me"
+  # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+  secretsEncryptionKey: ""
+
+# Name of an existing Secret to use instead of the one this chart generates from
+# `config` and `postgres` above. Must contain the same keys the generated Secret
+# would (see templates/secret-app.yaml): database-url, admin-database-url,
+# postgres-db, jwt-secret, admin-username, admin-password, secrets-encryption-key.
+existingSecret: ""
+
+# This chart does NOT deploy Postgres — point it at an existing server.
+postgres:
+  host: postgres
+  port: 5432
+  database: cloudcost
+  username: cloudcost
+  password: change-me
+  # Maintenance connection used only by the migrate Job's db-init step, to check
+  # whether `postgres.database` exists and create it if not. Defaults to the same
+  # user/host connected to the server's default "postgres" maintenance database,
+  # which is enough as long as that user has the CREATEDB privilege. Point this at
+  # a superuser (or a user with CREATEDB) if it doesn't.
+  admin:
+    database: postgres
+    username: "" # defaults to postgres.username
+    password: "" # defaults to postgres.password
+
+# Controls the pre-install/pre-upgrade Job that ensures the database exists and
+# runs `alembic upgrade head`.
+migrationJob:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  hookWeight: "0"
