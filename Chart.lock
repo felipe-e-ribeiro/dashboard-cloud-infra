@@ -1,0 +1,6 @@
+dependencies:
+- name: platform-chart
+  repository: oci://ghcr.io/felipe-e-ribeiro/charts
+  version: 0.2.2
+digest: sha256:7a0ba3c6617e8762073370e1a51427d62568dc87b044c5c202b9eaeec3262b33
+generated: "2026-09-13T18:41:26.7425659-03:00"

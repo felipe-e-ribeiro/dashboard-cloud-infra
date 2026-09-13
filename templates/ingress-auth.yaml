@@ -1,0 +1,37 @@
+{{/*
+Template local (não do platform-chart) -- ingress.apiPath do platform-chart
+só roteia UM prefixo ("/api") direto pra api. O frontend deste app (ver
+frontend/api/client.ts no repo do código) também chama /auth/* (login,
+me, logout) além de /api/*. Sem isso, /auth/* cairia no catch-all "/" do
+Ingress do platform-chart e seria servido pelo pod do frontend, cujo
+nginx.conf faz proxy_pass pra um host "backend" que não existe no
+Kubernetes (era o nome do serviço no docker-compose) -- login quebraria
+em produção (descoberto rastreando o nginx.conf antes do primeiro deploy,
+não em produção).
+
+O ingress-nginx mescla todo Ingress que aponta pro mesmo host num único
+vhost, então este objeto só soma mais um path -- por isso ele NÃO repete
+o bloco `tls`/a annotation do cert-manager (o Ingress principal do
+platform-chart já emite e serve o certificado desse host; duplicar a
+annotation criaria um segundo Certificate pro mesmo secretName).
+*/}}
+{{- $pc := index .Values "platform-chart" }}
+{{- if and $pc.ingress.enabled $pc.api.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-auth
+spec:
+  ingressClassName: {{ $pc.ingress.className }}
+  rules:
+    - host: {{ $pc.ingress.host }}
+      http:
+        paths:
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-api
+                port:
+                  number: 80
+{{- end }}

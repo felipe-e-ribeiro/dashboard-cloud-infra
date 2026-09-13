@@ -1,90 +1,91 @@
-# dashboard-cloud (Helm chart)
+# dashboard-cloud-infra
 
-Deploys the Cloud Cost Dashboard backend (FastAPI) and frontend (nginx/React).
+Infra do "Cloud Cost Dashboard" (AWS + OCI, usuário único — código em
+[dashboard-cloud](https://github.com/felipe-e-ribeiro/dashboard-cloud)),
+via [`platform-chart`](https://github.com/felipe-e-ribeiro/personal-charts).
 
-**This chart does not provision Postgres.** Point `values.postgres.*` at an
-existing server, then let the chart's migration Job prepare the database.
+Migrado do chart bespoke (Deployment/Service/Ingress/Job de migração
+escritos à mão) pro `platform-chart` em 2026-09-13 — ver
+`PERSONAL-INFRA-CONTEXT.md` no repo `skill-personalsre` pro histórico
+completo da decisão.
 
-## What the migration Job does
+## Estrutura
 
-`templates/job-db-migrate.yaml` runs as a `pre-install,pre-upgrade` Helm hook,
-before the backend/frontend Deployments are created or updated:
+- `Chart.yaml` / `values.yaml`: consome o `platform-chart` como
+  dependência — schema completo de cada seção em
+  [`platform-chart/README.md`](https://github.com/felipe-e-ribeiro/personal-charts/blob/main/README.md)
+  e `values.yaml` daquele repo.
+- `resources.yaml`: documenta as chaves esperadas no secret do OCI Vault
+  (`dashboard-cloud-app-secrets`) — não consumido automaticamente ainda,
+  é referência pra criar/atualizar o secret manualmente.
+- `templates/external-secret.yaml`: `ExternalSecret` que materializa o
+  secret do Vault como Secret do Kubernetes (`dashboard-cloud-secrets`),
+  via `ClusterSecretStore` (`argocd-bootstrap`).
+- `templates/ingress-auth.yaml`: **template extra que não existe nos
+  outros `<app>-infra`.** O `platform-chart` só roteia um `apiPath`
+  ("/api") direto pra api; este app também usa `/auth/*` (login/logout —
+  ver `frontend/api/client.ts` no repo do código). Sem esse Ingress
+  adicional, `/auth/*` cairia no catch-all `/` e seria servido pelo pod
+  do frontend, cujo `nginx.conf` faz `proxy_pass` pra um host `backend`
+  que só existe no docker-compose local, não no Kubernetes — login
+  quebraria em produção. Descoberto rastreando o `nginx.conf` antes do
+  primeiro deploy, não em produção.
 
-1. **`db-init` (init container)** — runs `templates/configmap-db-init.yaml`'s
-   `db_init.py` script. It connects to the Postgres maintenance database
-   (`values.postgres.admin.database`, default `postgres`) with the admin
-   credentials, checks `pg_database` for `values.postgres.database`, and issues
-   `CREATE DATABASE` only if it's missing. Safe to run on every install/upgrade.
-2. **`migrate` (container)** — runs `alembic upgrade head` using the same
-   backend image, applying any schema migrations under `backend/alembic/versions/`
-   that haven't been applied yet.
+## Descoberta no cluster (ArgoCD)
 
-Both steps use the backend image (it already has `psycopg` and `alembic`
-installed), so no extra image needs to be built.
+Este app é descoberto automaticamente via
+[`argocd-bootstrap/apps-registry/dashboard-cloud.yaml`](https://github.com/felipe-e-ribeiro/argocd-bootstrap)
+— sem `Application` escrita à mão. Namespace = `dashboard-cloud`.
 
-The Job is named `<release>-migrate-<revision>` and deletes itself after
-succeeding (`helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded`),
-so every install/upgrade gets a fresh, inspectable run.
+## Postgres
 
-## Install
+Sem StatefulSet próprio — reaproveita a instância já existente do
+`comprasweb` (`comprasweb-postgres.comprasweb.svc.cluster.local:5432`),
+banco `dashboard_cloud` dedicado dentro dela (mesmo padrão do `pulse`,
+banco `pulse` na mesma instância). Criado manualmente uma vez:
 
-```sh
-helm install dashboard-cloud ./temp \
-  --set postgres.host=my-postgres.internal \
-  --set postgres.username=cloudcost \
-  --set postgres.password=... \
-  --set postgres.database=cloudcost \
-  --set config.jwtSecret=... \
-  --set config.adminPassword=... \
-  --set config.secretsEncryptionKey=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())") \
-  --set backend.image.repository=your-registry/dashboard-cloud-backend \
-  --set backend.image.tag=1.0.0 \
-  --set frontend.image.repository=your-registry/dashboard-cloud-frontend \
-  --set frontend.image.tag=1.0.0
+```bash
+kubectl exec -n comprasweb comprasweb-postgres-0 -- psql -U compras -d postgres \
+  -c "CREATE DATABASE dashboard_cloud OWNER compras;"
 ```
 
-Prefer a private values file over a long `--set` list for real credentials, e.g.
-`helm install dashboard-cloud ./temp -f values.secret.yaml` (keep that file out
-of git, same as `.env` in the rest of this repo).
+Diferente do `pulse` (que tem um `db_bootstrap.py` que cria o banco
+sozinho no startup), este app espera o banco já existir — `alembic
+upgrade head` (rodado pelo próprio `CMD` do `Dockerfile` do backend)
+só cuida do schema.
 
-If the Postgres user in `postgres.username` doesn't have `CREATEDB`, set
-`postgres.admin.username` / `postgres.admin.password` to a user that does (or a
-superuser) — the migrate Job uses those only to create the database, while the
-app itself keeps using `postgres.username`.
+## Secret no Vault
 
-## Upgrade
+Criado/atualizado direto no Vault (não via `repository_dispatch`/Terraform):
 
-```sh
-helm upgrade dashboard-cloud ./temp -f values.secret.yaml
+```bash
+oci vault secret create-base64 --profile DEV \
+  --compartment-id <compartment_id> --vault-id <vault_id> --key-id <key_id> \
+  --secret-name "dashboard-cloud-app-secrets" \
+  --secret-content-content "$(base64 -i secret.json)" \
+  --secret-content-stage CURRENT --wait-for-state ACTIVE
 ```
 
-Each upgrade re-runs the migrate Job first, so any new Alembic revision is
-applied before the new backend Pods start.
+`secret.json` com as chaves listadas em `resources.yaml`. Depois de
+criar/atualizar, força o `ExternalSecret` a resincronizar na hora:
 
-## Structure
-
-```
-temp/
-├── Chart.yaml
-├── values.yaml
-├── templates/
-│   ├── _helpers.tpl              # name/label helpers, DSN builders
-│   ├── secret-app.yaml           # DATABASE_URL, JWT_SECRET, etc. (skipped if existingSecret is set)
-│   ├── configmap-db-init.yaml    # the db_init.py script
-│   ├── job-db-migrate.yaml       # pre-install/pre-upgrade hook Job (db-init + alembic upgrade head)
-│   ├── backend-deployment.yaml
-│   ├── backend-service.yaml
-│   ├── frontend-configmap.yaml   # nginx.conf pointed at this chart's backend Service
-│   ├── frontend-deployment.yaml
-│   ├── frontend-service.yaml
-│   ├── ingress.yaml              # disabled by default
-│   └── NOTES.txt
-└── README.md
+```bash
+kubectl annotate externalsecret dashboard-cloud-secrets -n dashboard-cloud \
+  force-sync="$(date +%s)" --overwrite
 ```
 
-## Notes
+## Deploy de uma imagem nova
 
-- Set `frontend.enabled=false` to deploy only the backend + migration Job.
-- `existingSecret` lets you manage credentials with something like External
-  Secrets/Sealed Secrets instead of `values.config`/`values.postgres` — see the
-  key list in `templates/secret-app.yaml`.
+Ainda não tem automação de CI que bump a tag aqui sozinha (diferente do
+`pulse`/`PULSE_INFRA_PAT` e do `compras`/`update-infra` — ver
+`PERSONAL-INFRA-CONTEXT.md`, pendência conhecida). Depois que o
+`build-and-push` do `dashboard-cloud` publicar a imagem nova no GHCR,
+edite `platform-chart.api.image.tag` / `platform-chart.frontend.image.tag`
+em `values.yaml` manualmente e dê push — o ArgoCD sincroniza sozinho.
+
+## Validar localmente (sem cluster)
+
+```bash
+helm dependency build .
+helm template dashboard-cloud . > /dev/null
+```

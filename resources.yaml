@@ -1,0 +1,40 @@
+# Declarativo/documental por ora (não consumido automaticamente ainda --
+# ver "Próximos passos" na spec do personal-chard). Documenta os recursos
+# de nuvem que este app precisa, hoje só o secret do OCI Vault.
+#
+# O secret é criado/atualizado diretamente no Vault (não via
+# repository_dispatch/Terraform -- ver "Quarto pivot" no
+# PERSONAL-INFRA-CONTEXT.md):
+#
+#   oci vault secret create-base64 --profile DEV \
+#     --compartment-id <compartment_id> --vault-id <vault_id> --key-id <key_id> \
+#     --secret-name "dashboard-cloud-app-secrets" \
+#     --secret-content-content "$(base64 -i secret.json)" \
+#     --secret-content-stage CURRENT --wait-for-state ACTIVE
+#
+# secret.json tem exatamente as chaves listadas abaixo.
+
+secrets:
+  - vaultSecretName: "dashboard-cloud-app-secrets" # deve bater com values.yaml (externalSecret.vaultSecretName)
+    kubernetesSecretName: "dashboard-cloud-secrets" # deve bater com values.yaml (externalSecret.kubernetesSecretName)
+    keys:
+      - DATABASE_URL # aponta pro Postgres compartilhado do comprasweb, banco "dashboard_cloud"
+      - JWT_SECRET
+      - ADMIN_USERNAME
+      - ADMIN_PASSWORD
+      - SECRETS_ENCRYPTION_KEY # criptografa as credenciais AWS/OCI que o usuário cadastra via /settings
+
+# AWS_* e OCI_* NÃO ficam aqui -- desde que o app passou a ter uma tela
+# /settings, as credenciais de nuvem (AWS access key, OCI OCIDs/fingerprint/
+# chave de assinatura) são cadastradas pelo usuário direto na UI depois do
+# deploy, e ficam guardadas cifradas dentro do próprio Postgres (coluna
+# cloud_provider_configs, cifrada com SECRETS_ENCRYPTION_KEY acima) -- não
+# como env var/Secret do Kubernetes.
+
+# Postgres: SEM StatefulSet próprio -- usa a instância já existente do
+# comprasweb (comprasweb-postgres, namespace comprasweb), banco
+# "dashboard_cloud" dedicado dentro dela (criado manualmente uma vez via
+# `kubectl exec ... -- psql -c "CREATE DATABASE dashboard_cloud"`, já que
+# esta app -- diferente do pulse -- não tem um db_bootstrap.py que crie o
+# banco sozinho no startup). `alembic upgrade head` (rodado pelo CMD do
+# Dockerfile do backend) cuida do schema depois que o banco já existe.

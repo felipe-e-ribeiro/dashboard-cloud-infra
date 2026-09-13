@@ -1,10 +1,15 @@
 apiVersion: v2
 name: dashboard-cloud
 description: >
-  Helm chart for the Cloud Cost Dashboard (FastAPI backend + nginx/React frontend).
-  Does not provision Postgres itself — it expects an existing Postgres server and
-  ships a pre-install/pre-upgrade Job that creates the application database (if it
-  doesn't already exist) and applies pending Alembic schema migrations.
+  Infra do "Cloud Cost Dashboard" (FastAPI backend + nginx/React frontend,
+  código em https://github.com/felipe-e-ribeiro/dashboard-cloud) via
+  platform-chart. Sem Postgres próprio -- reaproveita o Postgres
+  compartilhado do comprasweb (ver resources.yaml), mesmo padrão do pulse.
 type: application
 version: 0.1.0
-appVersion: "1.0.0"
+appVersion: "0.1.0"
+home: https://github.com/felipe-e-ribeiro/dashboard-cloud
+dependencies:
+  - name: platform-chart
+    version: "0.2.2"
+    repository: "oci://ghcr.io/felipe-e-ribeiro/charts"
