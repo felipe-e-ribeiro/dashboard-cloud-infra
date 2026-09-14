@@ -12,7 +12,7 @@ platform-chart:
     enabled: true
     image:
       repository: ghcr.io/felipe-e-ribeiro/dashboard-cloud-backend
-      tag: "" # bumpado manualmente por enquanto -- ver README "Deploy de uma imagem nova"
+      tag: "0.8" # bumpado manualmente por enquanto -- ver README "Deploy de uma imagem nova"
     port: 8000
     probes:
       path: /health
@@ -26,7 +26,7 @@ platform-chart:
     enabled: true
     image:
       repository: ghcr.io/felipe-e-ribeiro/dashboard-cloud-frontend
-      tag: ""
+      tag: "0.8"
     port: 8080 # nginx.conf (frontend/nginx.conf) escuta 8080, não 80
   ingress:
     enabled: true
@@ -41,9 +41,9 @@ platform-chart:
   # SEM Postgres próprio -- aponta pro Postgres já existente do
   # comprasweb (comprasweb-postgres.comprasweb.svc.cluster.local:5432),
   # banco "dashboard_cloud" dedicado dentro dessa mesma instância (mesmo
-  # padrão do pulse, banco "pulse" na mesma instância). Reaproveita o
-  # usuário/senha "bootstrap" do comprasweb -- não existe um usuário
-  # Postgres dedicado pra este app hoje.
+  # padrão do pulse, banco "pulse" na mesma instância). Diferente do
+  # pulse, usa uma role Postgres própria ("dashboard_cloud", dona do
+  # próprio banco) em vez de reaproveitar o usuário/senha do comprasweb.
   postgres:
     enabled: false
   # Produção via ArgoCD/ExternalSecret -- não preencher secrets.data
