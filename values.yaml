@@ -12,7 +12,7 @@ platform-chart:
     enabled: true
     image:
       repository: ghcr.io/felipe-e-ribeiro/dashboard-cloud-backend
-      tag: "0.8" # bumpado manualmente por enquanto -- ver README "Deploy de uma imagem nova"
+      tag: "0.9" # bumpado manualmente por enquanto -- ver README "Deploy de uma imagem nova"
     port: 8000
     probes:
       path: /health
@@ -26,7 +26,7 @@ platform-chart:
     enabled: true
     image:
       repository: ghcr.io/felipe-e-ribeiro/dashboard-cloud-frontend
-      tag: "0.8"
+      tag: "0.9"
     port: 8080 # nginx.conf (frontend/nginx.conf) escuta 8080, não 80
   ingress:
     enabled: true
