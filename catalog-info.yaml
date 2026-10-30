@@ -1,0 +1,19 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: dashboard-cloud-infra
+  description: Infra do dashboard-cloud (custo AWS+OCI)
+  annotations:
+    github.com/project-slug: felipe-e-ribeiro/dashboard-cloud-infra
+    argocd/app-name: dashboard-cloud
+  links:
+    - url: https://dash-finops.felipeduribeiro.com.br
+      title: dash-finops.felipeduribeiro.com.br
+    - url: https://github.com/felipe-e-ribeiro/dashboard-cloud
+      title: Código (dashboard-cloud)
+  tags: [helm, platform-chart]
+spec:
+  type: infra
+  lifecycle: production
+  owner: group:platform
+  system: oks-personal
